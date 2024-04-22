@@ -18,8 +18,9 @@ const io = new Server(server, {
 });
 
 io.on('connection', (socket: Socket) => {
-    socket.on('joinRoom', ([roomId]) => {
+    socket.on('joinRoom', async ([roomId]) => {
         let playersInRoom = io.sockets.adapter.rooms.get(roomId)?.size ?? 0
+        await io.to(socket.id).emit("getRole", playersInRoom)
 
         // if there arent 2 players already in the room
         if (playersInRoom < 2) {
@@ -32,11 +33,21 @@ io.on('connection', (socket: Socket) => {
         else
             console.log("room si full")
 
+        socket.on('sendTurn', (turn) => {
+            socket.broadcast.emit("receiveTurn", turn)
+        });
+
+        socket.on('playAgain', () => {
+            socket.broadcast.emit("playAgain")
+        });
+
         socket.on('error', function (err) {
             console.log(err);
         });
 
-        //implement disconnect
+        socket.on('disconnect', function (err) {
+            io.in(roomId).emit("stopMatch")
+        })
     })
 });
 

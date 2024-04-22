@@ -1,17 +1,21 @@
 import numpy as np
 import socketio
-
-import threading  # Import threading module to create a blocking mechanism
+import threading
 
 sio = socketio.Client()
 sio.connect('http://localhost:5000')
 sio.emit('joinRoom', ["room"])
 
-print('my sid is', sio.sid)
-
 turns = 0
 x_won = False
 o_won = False
+
+# 0 is X, 1 is O
+my_role = 0
+
+wait_turn_event = threading.Event()
+game_started_event = threading.Event()
+stop_event = threading.Event()
 
 board = np.array([[0,0,0],[0,0,0],[0,0,0]])
 magic_square = np.array([[4,9,2], [3,5,7], [8,1,6]])
@@ -40,18 +44,22 @@ def user_input(turn):
     print("Example: (1,2 means first column, second row)")
 
     choice = ""
-    if turn == 0: choice = input("X turn: ")
-    else: choice = input("O turn: ")
+    if turn == my_role: 
+        choice = input("Your turn: ")
 
-    column = int(choice.split(',')[0])-1
-    row = int(choice.split(',')[1])-1
-    
-    if board[row,column] == 0:
-        board[row,column] = turn+1
+        column = int(choice.split(',')[0])-1
+        row = int(choice.split(',')[1])-1
+        
+        if board[row,column] == 0:
+            board[row,column] = turn+1
+            sio.emit("sendTurn", [column+1, row+1]);
+        else:
+            ui()
+            print("Invalid turn")
+            user_input(turn)
     else:
-        ui()
-        print("Invalid turn")
-        user_input(turn)
+        print("Opponent's turn")
+        wait_turn_event.wait()
 
 def check_win_condition():
     global x_won, o_won
@@ -84,22 +92,26 @@ def check_win_condition():
         o_won = True
 
 def end_game():
-    global turns, x_won, o_won, board
     if turns == 9:
         print("Draw!")
     elif x_won:
         print("X won!")
     elif o_won:
         print("O won!")
+    if my_role == 0:
+        choice = input("Play again? (Y | N): ")
+        if choice.upper() == "Y":
+            sio.emit("playAgain")
+            reset_game()
 
-    choice = input("Play again? (Y | N): ")
-    if choice.upper() == "Y":
-        turns = 0
-        x_won = False
-        o_won = False
-        board = np.array([[0,0,0],[0,0,0],[0,0,0]])
+def reset_game():
+    global turns, x_won, o_won, board
+    turns = 0
+    x_won = False
+    o_won = False
+    board = np.array([[0,0,0],[0,0,0],[0,0,0]])
         
-        game()
+    game()
 
 def game():
     global turns
@@ -112,23 +124,45 @@ def game():
 
     end_game()
 
-# Define a function to handle user input for quitting the game
-def quit_game():
-    while True:
-        choice = input()
-        if choice.lower() == "quit":
-            print("Quitting the game...")
-            event.clear()
-            exit()
-
-# Start the thread to handle user input for quitting the game
-quit_thread = threading.Thread(target=quit_game)
-quit_thread.start()
-
-event = threading.Event()
-
 @sio.on('startMatch')
-def receiveMessage():
-    print("started")
+def startMatch():
+    game_started_event.set() 
     game()
     
+@sio.on('stopMatch')
+def stopMatch():
+    print("User left the game...")
+    stop_event.set()
+
+@sio.on('getRole')
+def getRole(role):
+    global my_role
+    my_role = role
+    print("You're", end=" ")
+    if my_role == 0:
+        print("X")
+    else:
+        print("O")
+
+@sio.on('receiveTurn')
+def receiveTurn(turn):
+    global turns
+    column = int(turn[0])-1
+    row = int(turn[1])-1
+    board[row,column] = (turns % 2)+1
+    wait_turn_event.set()
+    wait_turn_event.clear()
+    
+def wait_for_game_start():
+    print("Waiting for the match to start...")
+    game_started_event.wait()
+    print("Match has started!")
+    while not stop_event.is_set():
+        pass  # keep thread alive
+
+@sio.on('playAgain')
+def playAgain():
+    reset_game()
+
+thread = threading.Thread(target=wait_for_game_start)
+thread.start()
