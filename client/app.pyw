@@ -1,10 +1,18 @@
 import numpy as np
 import socketio
 import threading
+import os
+
+def cls():
+    os.system('cls' if os.name=='nt' else 'clear')
+cls()
 
 sio = socketio.Client()
+port = input("Port (default: 5000): ")
 sio.connect('http://localhost:5000')
-sio.emit('joinRoom', ["room"])
+
+room_id = input("Room id: ")
+sio.emit('joinRoom', [room_id])
 
 turns = 0
 x_won = False
@@ -27,7 +35,14 @@ def ui():
         2: " o "
     }
 
-    print("\n\n\n\n")
+    cls()
+    
+    # information about your role
+    print("You're", end=" ")
+    if my_role == 0: print("X") 
+    else: print("O")
+
+    print("\n\n\n")
 
     print(f"{symbol_map.get(board[0, 0], "?")} | {symbol_map.get(board[0, 1], "?")} | {symbol_map.get(board[0, 2], "?")}")
     print("- - + - - + - -")
@@ -45,21 +60,28 @@ def user_input(turn):
 
     choice = ""
     if turn == my_role: 
-        choice = input("Your turn: ")
+        choice = input("Your turn: \n")
 
-        column = int(choice.split(',')[0])-1
-        row = int(choice.split(',')[1])-1
-        
-        if board[row,column] == 0:
-            board[row,column] = turn+1
-            sio.emit("sendTurn", [column+1, row+1]);
-        else:
-            ui()
-            print("Invalid turn")
-            user_input(turn)
+        try:
+            column = int(choice.split(',')[0])-1
+            row = int(choice.split(',')[1])-1
+
+            if board[row,column] == 0:
+                board[row,column] = turn+1
+                sio.emit("sendTurn", [column+1, row+1]);
+            else:
+                invalid_user_input(turn)
+        except:
+            invalid_user_input(turn)
+    
     else:
         print("Opponent's turn")
         wait_turn_event.wait()
+
+def invalid_user_input(turn):
+    ui()
+    print("Invalid turn")
+    user_input(turn)
 
 def check_win_condition():
     global x_won, o_won
@@ -105,12 +127,18 @@ def end_game():
             reset_game()
 
 def reset_game():
-    global turns, x_won, o_won, board
+    global turns, x_won, o_won, board, my_role
+
+    # reset every aspect of the match
     turns = 0
     x_won = False
     o_won = False
     board = np.array([[0,0,0],[0,0,0],[0,0,0]])
-        
+    
+    # change roles
+    if my_role == 0: my_role = 1
+    else: my_role = 0
+
     game()
 
 def game():
@@ -122,6 +150,8 @@ def game():
         check_win_condition()
         turns += 1
 
+    # render the ui one last time to see the final board before the end
+    ui()
     end_game()
 
 @sio.on('startMatch')
@@ -138,11 +168,6 @@ def stopMatch():
 def getRole(role):
     global my_role
     my_role = role
-    print("You're", end=" ")
-    if my_role == 0:
-        print("X")
-    else:
-        print("O")
 
 @sio.on('receiveTurn')
 def receiveTurn(turn):

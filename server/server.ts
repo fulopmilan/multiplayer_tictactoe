@@ -25,8 +25,6 @@ io.on('connection', (socket: Socket) => {
         // if there arent 2 players already in the room
         if (playersInRoom < 2) {
             socket.join(roomId);
-            console.log('a user connected: ' + socket.id);
-            console.log(playersInRoom)
             if (playersInRoom == 1)
                 io.in(roomId).emit("startMatch")
         }
@@ -51,6 +49,7 @@ io.on('connection', (socket: Socket) => {
     })
 });
 
-server.listen(process.env.PORT, () => {
+var port = process.env.PORT || 5000
+server.listen(port, () => {
     console.log('listening on port 5000');
 });
